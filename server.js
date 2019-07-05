@@ -81,10 +81,26 @@ app.post('/', function (req, res) {
 });
 
 //Delete an instance
-app.delete('/', function (req, res) {
+app.delete('/User/:userName', function (req, res) {
 
-   console.log("HTTP DELETE Request");
-   //todo
+  console.log("HTTP DELETE Request");
+
+  var userName = req.params.userName;
+
+  console.log("User to delete: " + userName);
+  //TODO: verify if item exists to return a diferent error
+
+  var referencePath = '/Users/'+userName+'/';
+  var userReference = firebase.database().ref(referencePath);
+  userReference.remove(
+         function(error) {
+          if (error) {
+            res.send("Data could not be deleted." + error);
+          }
+          else {
+            res.send("Data deleted successfully.");
+          }
+          });
 });
 
 var server = app.listen(8080, function () {
