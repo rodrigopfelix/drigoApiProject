@@ -1,3 +1,6 @@
+const baseRoute = '/api/v1';
+const database = 'notes';
+
 var express = require('express');
 var firebase = require('firebase');
 var bodyParser = require('body-parser');
@@ -27,49 +30,98 @@ const config = {
 
 firebase.initializeApp(config);
 
-//Fetch instances
-app.get('/', function (req, res) {
+function dbNotes(id) {
+  return id == null ?
+    firebase.database().ref(`/${database}/`) :
+    firebase.database().ref(`/${database}/${id}/`);
+}
 
-  console.log("HTTP Get Request");
-  var userReference = firebase.database().ref("/Users/");
+/*function dbConfig(param) {
+  return param == null ?
+    firebase.database().ref(`/Config/`) :
+    firebase.database().ref(`/Config/${param}/`);
+}*/
+
+function getImageUrl(imageFileName) {
+  return `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${imageFileName}?alt=media`;
+}
+
+function convertToArray(obj) {
+  return Object.keys(obj).map(function(key) {
+    return obj[key];
+  });
+}
+
+function sendSuccess(res, data) {
+  console.log('Success => ' + data);
+  res.status(200).send({
+    status: 'success',
+    data: data
+  });
+}
+
+function sendError(res, error) {
+  console.log('Error => ' + error);
+  res.status(500).send({
+    status: 'error',
+    data: error
+  });
+}
+
+//Fetch instances
+app.get(`${baseRoute}/notes`, function (req, res) {
+
+  //TODO: implement get from :id
+  console.log(" > HTTP Get Request");
+  var ref = dbNotes(null);
 
   //Attach an asynchronous callback to read the data
-  userReference.on("value",
-        function(snapshot) {
-          console.log(snapshot.val());
-          res.json(snapshot.val());
-          userReference.off("value");
-          },
-        function (errorObject) {
-          console.log("The read failed: " + errorObject.code);
-          res.send("The read failed: " + errorObject.code);
-       });
+  ref.on("value",
+    function(snapshot) {
+      var ret = snapshot.exists() ? convertToArray(snapshot.val()) : [];
+      sendSuccess(res, ret);
+      ref.off("value");
+    },
+    function (errorObject) {
+      sendError(res, "The read failed: " + errorObject.code);
+      ref.off("value");
+    }
+  );
 });
 
 //Create new instance
-app.put('/', function (req, res) {
+app.put(`${baseRoute}/notes`, multer.single('file'), function (req, res) {
 
-  console.log("HTTP Put Request");
+  console.log(" > HTTP Put Request");
 
-  var userName = req.body.UserName;
-  var name = req.body.Name;
-  var age = req.body.Age;
-
-  var referencePath = '/Users/'+userName+'/';
-  var userReference = firebase.database().ref(referencePath);
-  userReference.set({Name: name, Age: age},
-         function(error) {
-          if (error) {
-            res.send("Data could not be saved." + error);
-          }
-          else {
-            res.send("Data saved successfully.");
-          }
-      });
+  var id = Date.now().toString(); //req.body.id; //TODO: controlar ID
+  var title = req.body.title;
+  var description = req.body.description;
+  var datetime = new Date();
+  //var imageUrl = req.body.imageUrl;
+  var file = req.file;
+  var newFileName = `${id}_${file.originalname}`;
+  
+  if (file) {
+    uploadImageToStorage(file, newFileName).then((success) => {
+      //The file's uploads was successful. So, store the date into firebase
+      console.log('Image uploded. Starting to storange the data...');
+      var ref = dbNotes(id);
+      ref.set({Id: id, Title: title, Description: description, Datetime: datetime, File: newFileName},
+            function(error) {
+              if (error)
+                sendError(res, 'Failed to save record:' + error);
+              else
+                sendSuccess(res, id);
+            });
+    }).catch((error) => {
+      sendError(res, `Failed to upload the file. Message: ${error}`);
+    });
+  }
 });
 
-//Update existing instance
-app.post('/', function (req, res) {
+/*//Update existing instance
+app.post(`${baseRoute}/notes`, function (req, res) {
 
   console.log("HTTP POST Request");
 
@@ -77,8 +129,7 @@ app.post('/', function (req, res) {
   var name = req.body.Name;
   var age = req.body.Age;
 
-  var referencePath = '/Users/'+userName+'/';
-  var userReference = firebase.database().ref(referencePath);
+  var userReference = getFirebaseReference(userName);
   userReference.update({Name: name, Age: age},
          function(error) {
           if (error) {
@@ -88,57 +139,35 @@ app.post('/', function (req, res) {
             res.send("Data updated successfully.");
           }
           });
-});
+});*/
 
 //Delete an instance
-app.delete('/User/:userName', function (req, res) {
+app.delete(`${baseRoute}/notes/:id`, function (req, res) {
 
-  console.log("HTTP DELETE Request");
+  console.log(" > HTTP DELETE Request");
 
-  var userName = req.params.userName;
+  var id = req.params.id;
 
-  console.log("User to delete: " + userName);
-  //TODO: verify if item exists to return a diferent error
+  //TODO: verify if item exists to return a diferent error ---> VER: https://stackoverflow.com/questions/24824732/test-if-a-data-exist-in-firebase
 
-  var referencePath = '/Users/'+userName+'/';
-  var userReference = firebase.database().ref(referencePath);
-  userReference.remove(
-         function(error) {
-          if (error) {
-            res.send("Data could not be deleted." + error);
-          }
-          else {
-            res.send("Data deleted successfully.");
-          }
-          });
-});
-
-app.post('/upload', multer.single('file'), (req, res) => {
-  console.log('Upload Image');
-
-  let file = req.file;
-  if (file) {
-    uploadImageToStorage(file).then((success) => {
-      res.status(200).send({
-        status: 'success'
-      });
-    }).catch((error) => {
-      console.error(error);
+  dbNotes(id).remove(
+    function(error) {
+      if (error) 
+        sendError(res, 'Error: ' + error)
+      else
+        sendSuccess(res, `Success. id '${id}' was deleted`);
     });
-  }
 });
 
 /**
  * Upload the image file to Google Storage
  * @param {File} file object that will be uploaded to Google Storage
  */
-const uploadImageToStorage = (file) => {
+const uploadImageToStorage = (file, newFileName) => {
   return new Promise((resolve, reject) => {
     if (!file) {
       reject('No image file');
     }
-    
-    let newFileName = `${file.originalname}_${Date.now()}`;
 
     let fileUpload = bucket.file(newFileName);
 
@@ -154,8 +183,7 @@ const uploadImageToStorage = (file) => {
 
     blobStream.on('finish', () => {
       // The public URL can be used to directly access the file via HTTP.
-      // const url = format(`https://storage.googleapis.com/${bucket.name}/${fileUpload.name}`);
-      const url = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${fileUpload.name}?alt=media`;
+      const url = getImageUrl(fileUpload.name);
       console.log (`PUBLIC URL: ${url}`);
       resolve(url);
     });
@@ -165,9 +193,24 @@ const uploadImageToStorage = (file) => {
 }
 
 var server = app.listen(8080, function () {
-
+  
   var host = server.address().address;
   var port = server.address().port;
 
   console.log("Example app listening at http://%s:%s", host, port);
+
+  /*console.log("Getting next avaliable id...");
+  var ref = dbConfig('nextId');
+  ref.on("value",
+    function(snapshot) {
+      nextId = snapshot.val();
+      console.log('Next avaliable id: ' + nextId);
+      ref.off("value");
+
+      console.log("Example app listening at http://%s:%s", host, port);
+    },
+    function (errorObject) {
+      throw 'Could not get the next id: ' + errorObject.code;
+    }
+  );*/
 });
