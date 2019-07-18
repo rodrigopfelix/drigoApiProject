@@ -6,6 +6,8 @@ var firebase = require('firebase');
 var bodyParser = require('body-parser');
 const {Storage} = require('@google-cloud/storage');
 const Multer = require('multer');
+var FCM = require('fcm-node');
+var fcm = new FCM('AAAAKELY-W8:APA91bGc53EwN5KmI2uj9MBCVKOEIYtqP7vHMZEkEAlfjvw6--Bpf11LnsRw5mdeI-tDWVqfQusuHhcRlNwKiuArJcgC8Djm43_oFdP2qPwa6vPw9ZPZYL-5oEacwZ3g1UifJIbKga9K');
 
 var app = express();
 const storage = new Storage ();
@@ -68,6 +70,26 @@ function sendError(res, error) {
   });
 }
 
+function pushNotification() {
+  console.log('Sending a push notification...');
+  
+  var message = {
+    "to" : "eoPP-pM4uE8:APA91bE-j0wKu9ZVCwfdijYLXYoDgjLNBuM1VgKbZlMIX72UVwEINpCWPlYXLKo6g1lgsu7lIRqsSTNOj5BldkgkI4DnnFZfHFiO3yEPphzOLHCHED0MXS7c_oModo9PmoWyC7fJMGAk",
+    "collapse_key" : "type_a",
+    "notification" : {
+        "body" : "Clique para verificar",
+        "title": "Nova imagem adicionada"
+    }
+   }
+
+  fcm.send(message, function(err, response){
+    if (err)
+        console.log("Failed to send:", err);
+    else 
+        console.log("Successfully sent with response: ", response);
+  });
+}
+
 //Fetch instances
 app.get(`${baseRoute}/notes`, function (req, res) {
 
@@ -111,8 +133,10 @@ app.put(`${baseRoute}/notes`, multer.single('file'), function (req, res) {
             function(error) {
               if (error)
                 sendError(res, 'Failed to save record:' + error);
-              else
+              else {
+                pushNotification(); // Tell anyone to update
                 sendSuccess(res, id);
+              }
             });
     }).catch((error) => {
       sendError(res, `Failed to upload the file. Message: ${error}`);
@@ -154,8 +178,18 @@ app.delete(`${baseRoute}/notes/:id`, function (req, res) {
     function(error) {
       if (error) 
         sendError(res, 'Error: ' + error)
-      else
-        sendSuccess(res, `Success. id '${id}' was deleted`);
+      else {
+        /* TODO: get de image file and delete the image. This code below is working do del a file named modelo_sql.txt!!
+        bucket.file('modelo_sql.txt').delete(function (err, apiResponse) {
+          if (err) {
+            console.log('ERROR: ' + err);
+          }
+          else {
+            console.log("Deleted successfully");
+          }
+        });*/
+        sendSuccess(res, `Success. id '${id}' was deleted`); 
+      }
     });
 });
 
@@ -191,6 +225,7 @@ const uploadImageToStorage = (file, newFileName) => {
     blobStream.end(file.buffer);
   });
 }
+
 
 var server = app.listen(8080, function () {
   
